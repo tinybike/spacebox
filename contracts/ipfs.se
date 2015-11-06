@@ -1,0 +1,8 @@
+data hashes[]
+
+def set_hash(name, hash):
+    self.hashes[name] = hash
+    return(1)
+
+def get_hash(name):
+    return(self.hashes[name])
