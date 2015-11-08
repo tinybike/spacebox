@@ -1,7 +1,7 @@
 {
   "name": "spacebox",
   "version": "0.1.0",
-  "description": "spacebox",
+  "description": "A box-shaped spaceship",
   "main": "index.js",
   "scripts": {
     "test": "mocha test",

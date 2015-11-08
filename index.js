@@ -6,6 +6,7 @@
 
 "use strict";
 
+var fs = require("fs");
 var crypto = require("crypto");
 var multihash = require("multi-hash");
 var ipfs = require("ipfs-api")("localhost", "5001");
@@ -89,6 +90,7 @@ module.exports = {
 
     ipfs: {
 
+        // lookup the IPFS hash associated with your account's public key
         resolve: function (name, callback) {
             ipfs.name.resolve(name, function (err, res) {
                 if (err || !res) return callback(err || "couldn't resolve name");
@@ -99,6 +101,7 @@ module.exports = {
             });
         },
 
+        // publish an IPFS hash to your IPFS account's public key
         publish: function (hash, callback) {
             ipfs.name.publish(hash, function (err, res) {
                 if (err || !res) return callback(err || "couldn't publish hash");
@@ -109,10 +112,11 @@ module.exports = {
             });
         },
 
-        add_files: function (path, recurse, callback) {
-            if (!callback && recurse && recurse.constructor === Function) {
-                callback = recurse;
-                recurse = false;
+        // add files/folders to IPFS
+        add: function (path, recursive, callback) {
+            if (!callback && recursive && recursive.constructor === Function) {
+                callback = recursive;
+                recursive = false;
             }
             var folder;
             if (path.indexOf('/') > -1) {
@@ -121,37 +125,86 @@ module.exports = {
             } else {
                 folder = path;
             }
-            ipfs.add(path, {recursive: recurse}, function (err, res) {
+            ipfs.add(path, {recursive: recursive}, function (err, res) {
                 if (err || !res) return callback(err || "couldn't add directory");
                 if (res && res.constructor === Array && res.length) {
                     for (var i = 0, len = res.length; i < len; ++i) {
-                        if (!recurse || res[i].Name === folder) {
+                        if (!recursive || res[i].Name === folder) {
                             return callback(null, res[i].Hash);
                         }
                     }
                 }
             });
+        },
+
+        is_directory: function (hash, callback) {
+            ipfs.ls(hash, function (err, res) {
+                if (err || !res) return callback(err);
+                if (res.Objects && res.Objects.constructor === Array && res.Objects.length && res.Objects[0] && res.Objects[0].constructor === Object && res.Objects[0].Links && res.Objects[0].Links.constructor === Array) {
+                    return callback(null, !!res.Objects[0].Links.length);
+                }
+                callback(res);
+            });
+        },
+
+        pin: function (hash, recursive, callback) {
+            ipfs.pin.add(hash, {recursive: recursive}, function (err, res) {
+                if (err || !res) return callback(err);
+                if (res && res.Pinned) {
+                    return callback(null, res.Pinned);
+                }
+                callback(res);
+            })
         }
-    
+
     },
 
-    upload: function (path, recurse, publish, callback) {
+    upload: function (path, options, callback) {
         var self = this;
-        this.ipfs.add_files(path, recurse, function (err, hash) {
-            if (err || !hash) return callback(err);
-            self.ipfs.publish(hash, function (err, name) {
-                if (err || !name) return callback(err);
-                if (publish) {
-                    self.eth.set_hash(name, hash, function (err, res) {
+        fs.exists(path, function (exists) {
+            if (!exists) return callback("path does not exist");
+            self.ipfs.add(path, options.recursive, function (err, hash) {
+                if (err || !hash) return callback(err);
+
+                // publish the results to ethereum
+                if (options.publish) {
+                    self.eth.set_hash(options.name, hash, function (err, res) {
                         if (err || !res) return callback(err);
                         if (res === true) {
-                            return callback(null, { hash: hash, name: name });
+                            return self.ipfs.is_directory(hash, function (err, directory) {
+                                if (err) return callback(err);
+                                callback(null, {
+                                    hash: hash,
+                                    name: name,
+                                    directory: directory
+                                });
+                            });
                         }
                         callback(res);
                     });
+
+                // store the results privately
                 } else {
-                    callback(null, { hash: hash, name: name });
+                    self.ipfs.is_directory(hash, function (err, directory) {
+                        if (err) return callback(err);
+                        callback(null, {hash: hash, directory: directory});
+                    });
                 }
+
+                // self.ipfs.publish(hash, function (err, name) {
+                //     if (err || !name) return callback(err);
+                //     if (options.publish) {
+                //         self.eth.set_hash(name, hash, function (err, res) {
+                //             if (err || !res) return callback(err);
+                //             if (res === true) {
+                //                 return callback(null, { hash: hash, name: name });
+                //             }
+                //             callback(res);
+                //         });
+                //     } else {
+                //         callback(null, { hash: hash, name: name });
+                //     }
+                // });
             });
         });
     }
