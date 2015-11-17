@@ -1,6 +1,6 @@
 {
   "name": "spacebox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A box-shaped spaceship",
   "main": "index.js",
   "scripts": {
@@ -8,10 +8,12 @@
     "lint": "jshint index.js"
   },
   "dependencies": {
+    "async": "^1.5.0",
     "augur-abi": "^0.2.7",
     "ethrpc": "^0.3.9",
     "ipfs-api": "^2.7.0",
-    "multi-hash": "^0.1.1"
+    "multi-hash": "^0.1.1",
+    "request": "^2.65.0"
   },
   "engines": {
     "node": "^4.0"

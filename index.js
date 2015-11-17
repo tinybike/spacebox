@@ -7,7 +7,11 @@
 "use strict";
 
 var fs = require("fs");
+var cp = require("child_process");
 var crypto = require("crypto");
+var join = require("path").join;
+var async = require("async");
+var request = require("request");
 var multihash = require("multi-hash");
 var ipfs = require("ipfs-api")("localhost", "5001");
 var abi = require("augur-abi");
@@ -118,21 +122,13 @@ module.exports = {
                 callback = recursive;
                 recursive = false;
             }
-            var folder;
-            if (path.indexOf('/') > -1) {
-                folder = path.split('/');
-                folder = folder[folder.length - 1];
-            } else {
-                folder = path;
-            }
             ipfs.add(path, {recursive: recursive}, function (err, res) {
                 if (err || !res) return callback(err || "couldn't add directory");
                 if (res && res.constructor === Array && res.length) {
-                    for (var i = 0, len = res.length; i < len; ++i) {
-                        if (!recursive || res[i].Name === folder) {
-                            return callback(null, res[i].Hash);
-                        }
+                    if (recursive && res && res.constructor === Array && res.length > 1) {
+                        return callback(null, res);
                     }
+                    callback(null, res[0]);
                 }
             });
         },
@@ -154,58 +150,180 @@ module.exports = {
                     return callback(null, res.Pinned);
                 }
                 callback(res);
-            })
+            });
         }
 
     },
 
     upload: function (path, options, callback) {
         var self = this;
+        options = options || {};
+        if (!callback && options && options.constructor === Function) {
+            callback = options;
+            options = {};
+        }
         fs.exists(path, function (exists) {
             if (!exists) return callback("path does not exist");
-            self.ipfs.add(path, options.recursive, function (err, hash) {
-                if (err || !hash) return callback(err);
+            self.ipfs.add(path, options.recursive, function (err, file) {
+                var files = [];
+                if (err || !file) return callback(err);
 
-                // publish the results to ethereum
+                // publish the results publicly to ethereum
                 if (options.publish) {
-                    self.eth.set_hash(options.name, hash, function (err, res) {
-                        if (err || !res) return callback(err);
-                        if (res === true) {
-                            return self.ipfs.is_directory(hash, function (err, directory) {
+                    if (!options.recursive) {
+                        return self.eth.set_hash(path, file.Hash, function (err, res) {
+                            if (err || !res) return callback(err);
+                            if (res !== true) return callback(res);
+                            self.ipfs.is_directory(file.Hash, function (err, directory) {
                                 if (err) return callback(err);
                                 callback(null, {
-                                    hash: hash,
-                                    name: name,
+                                    hash: file.Hash,
+                                    path: path,
                                     directory: directory
                                 });
                             });
-                        }
-                        callback(res);
+                        });
+                    }
+                    var shortpath = path.split('/');
+                    shortpath = shortpath[shortpath.length - 1];
+                    async.each(file, function (thisFile, nextFile) {
+                        if (thisFile.Name === '') return nextFile();
+                        self.ipfs.is_directory(thisFile.Hash, function (err, directory) {
+                            if (err) return nextFile(err);
+                            if (directory && thisFile.Name === shortpath) {
+                                self.eth.set_hash(path, thisFile.Hash, function (err, res) {
+                                    if (err || !res) return nextFile(err);
+                                    if (res !== true) return nextFile(res);
+                                    files.push({
+                                        hash: thisFile.Hash,
+                                        path: path,
+                                        directory: directory
+                                    });
+                                    nextFile();
+                                });
+                            } else {
+                                files.push({
+                                    hash: thisFile.Hash,
+                                    path: join(path, thisFile.Name),
+                                    directory: directory
+                                });
+                                nextFile();
+                            }
+                        });
+                    }, function (err) {
+                        if (err) return callback(err);
+                        callback(null, files);
                     });
 
                 // store the results privately
                 } else {
-                    self.ipfs.is_directory(hash, function (err, directory) {
+                    if (!options.recursive && file.Hash) {
+                        return self.ipfs.is_directory(file.Hash, function (err, directory) {
+                            if (err) return callback(err);
+                            callback(null, {hash: file.Hash, directory: directory});
+                        });
+                    }
+                    async.each(file, function (thisFile, nextFile) {
+                        self.ipfs.is_directory(thisFile.Hash, function (err, directory) {
+                            if (err) return nextFile(err);
+                            files.push({
+                                hash: thisFile.Hash,
+                                path: thisFile.Name,
+                                directory: directory
+                            });
+                            nextFile();
+                        });
+                    }, function (err) {
                         if (err) return callback(err);
-                        callback(null, {hash: hash, directory: directory});
+                        callback(null, files);
                     });
                 }
-
-                // self.ipfs.publish(hash, function (err, name) {
-                //     if (err || !name) return callback(err);
-                //     if (options.publish) {
-                //         self.eth.set_hash(name, hash, function (err, res) {
-                //             if (err || !res) return callback(err);
-                //             if (res === true) {
-                //                 return callback(null, { hash: hash, name: name });
-                //             }
-                //             callback(res);
-                //         });
-                //     } else {
-                //         callback(null, { hash: hash, name: name });
-                //     }
-                // });
             });
+        });
+    },
+
+    synchronize: function (handle, callback) {
+        var self = this;
+        request({
+            url: "http://localhost:8765/sync/" + handle,
+            method: "GET"
+        }, function (err, response, body) {
+            if (err) return callback(err);
+            if (response.statusCode === 200) {
+                var hashlist = JSON.parse(body);
+                var dirlist = [];
+                var num_updates = 0;
+                var updates = {};
+                async.each(hashlist, function (hashpair, nextHashpair) {
+                    var hash = hashpair[0];
+                    var path = hashpair[1];
+                    var modified = hashpair[2];
+
+                    self.ipfs.add(path, {recursive: true}, function (err, newHash) {
+                        if (err) return nextHashpair(err);
+                        if (hash === newHash) return nextHashpair();
+
+                        // if the file's hash has changed,
+                        // keep the most recently modified copy
+                        self.ipfs.is_directory(hash, function (err, directory) {
+                            if (err) return nextHashpair(err);
+                            if (directory) {
+                                dirlist.push(path);
+                                return nextHashpair();
+                            }
+                            fs.stat(path, function (err, stat) {
+                                if (err) return nextHashpair(err);
+                                num_updates++;
+
+                                // if the local copy is more recent, then upload it
+                                if (new Date(stat.mtime) > new Date(modified)) {
+                                    self.upload(path, {recursive: true}, function (err, res) {
+                                        if (err) return nextHashpair(err);
+                                        console.log("Uploaded file " + hashpair[1] + ": " + newHash);
+                                        updates[hashpair[1]] = {
+                                            hash: newHash,
+                                            directory: false
+                                        };
+                                        nextHashpair();
+                                    });
+
+                                // otherwise, download the remote copy
+                                } else {
+                                    cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
+                                        if (err) return nextHashpair(err);
+                                        console.log("Downloaded " + hashpair[1] + ": " + newHash);
+                                        updates[hashpair[1]] = {
+                                            hash: newHash,
+                                            directory: false
+                                        };
+                                        nextHashpair();
+                                    });
+                                }
+                            });
+                        });
+                    });
+                    
+                }, function (err) {
+                    if (err) return callback(err);
+                    async.each(dirlist, function (directory, nextDirectory) {
+                        self.upload(directory, {recursive: true}, function (err, res) {
+                            if (err) return nextDirectory(err);
+                            if (res && res.Hash) {
+                                console.log("Uploaded directory " + directory + ": " + res.Hash);
+                                updates[directory] = {
+                                    hash: res.Hash,
+                                    directory: true
+                                };
+                                return nextDirectory();
+                            }
+                            nextDirectory(res);
+                        });
+                    }, function (err) {
+                        if (err) return callback(err);
+                        callback(null, updates);
+                    });
+                });
+            }
         });
     }
 

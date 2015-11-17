@@ -13,9 +13,18 @@ describe("ipfs", function () {
     describe("add", function () {
         var test = function (t) {
             it(t.path + "," + t.recursive + " -> " + t.hash, function (done) {
-                spacebox.ipfs.add(t.path, t.recursive, function (err, hash) {
+                spacebox.ipfs.add(t.path, t.recursive, function (err, file) {
                     if (err) return done(err);
-                    assert.strictEqual(hash, t.hash);
+                    if (file.constructor === Array) {
+                        assert.isAbove(file.length, 1);
+                        for (var i = 0, len = file.length; i < len; ++i) {
+                            if (file[i].Name === t.path) {
+                                assert.strictEqual(file[i].Hash, t.hash);
+                            }
+                        }
+                    } else {
+                        assert.strictEqual(file.Hash, t.hash);
+                    }
                     done();
                 });
             });
@@ -67,42 +76,16 @@ describe("ipfs", function () {
         test({
             hash: "QmdChoeCkScfkGN1h5kp2FWyE1QJDLLFibBWh6u2TPXV43",
             directory: false
-        });        
-    });
-
-    describe("pin", function () {
-        var test = function (t) {
-            it(t.hash + "," + t.recursive, function (done) {
-                spacebox.ipfs.pin(t.hash, t.recursive, function (err, res) {
-                    if (err) return done(err);
-                    assert.isArray(res);
-                    assert.strictEqual(res.length, 1);
-                    assert.strictEqual(res[0], t.hash);
-                    done();
-                });
-            });
-        };
-        test({
-            recursive: true,
-            hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f"
         });
         test({
-            recursive: true,
-            hash: "QmZhtKv8zwj6CbqeWzwQYw9cJFYfGfppb2qYS1xvKkm417"
-        });
-        test({
-            recursive: true,
-            hash: "QmUpbbXcmpcXvfnKGSLocCZGTh3Qr8vnHxW5o8heRG6wDC"
-        });
-        test({
-            recursive: true,
-            hash: "QmdChoeCkScfkGN1h5kp2FWyE1QJDLLFibBWh6u2TPXV43"
-        });
+            hash: "Qmd69BU8jcZfWHTDNLYewHBbHNYeKFGy1DF8hjJMMS6yWr",
+            directory: true
+        }); 
     });
 
     describe("publish/resolve", function () {
         var test = function (t) {
-            it(t.hash + " -> " + t.label, function (done) {
+            it(t.hash + " -> " + t.name, function (done) {
                 spacebox.ipfs.publish(t.hash, function (err, name) {
                     if (err) return done(err);
                     assert.strictEqual(name, t.name);
@@ -115,37 +98,6 @@ describe("ipfs", function () {
             });
         };
         test({
-            hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f",
-            name: "QmXbf8FzHBSW1i7CQRn6LWGhrdxqcjWpFghvRS1g8T32DK"
-        });
-    });
-
-    describe("upload", function () {
-        var test = function (t) {
-            it(t.path + ",{directory:" + t.directory + ",publish:" + t.publish + "} -> name:" + t.name + ",hash:" + t.hash, function (done) {
-                spacebox.upload(t.path, t.directory, t.publish, function (err, res) {
-                    if (err) return done(err);
-                    assert.strictEqual(res.hash, t.hash);
-                    assert.strictEqual(res.name, t.name);
-                    done();
-                });
-            });
-        };
-        test({
-            path: "data",
-            options: {
-                directory: true,
-                publish: true
-            },
-            hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f",
-            name: "QmXbf8FzHBSW1i7CQRn6LWGhrdxqcjWpFghvRS1g8T32DK"
-        });
-        test({
-            path: "data",
-            options: {
-                directory: true,
-                publish: false
-            },
             hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f",
             name: "QmXbf8FzHBSW1i7CQRn6LWGhrdxqcjWpFghvRS1g8T32DK"
         });
@@ -202,4 +154,97 @@ describe("eth", function () {
 
     });
 
+});
+
+describe("upload", function () {
+    var test = function (t) {
+        it(t.path + ",{recursive:" + t.options.recursive + ",publish:" + t.options.publish + "} -> name:" + t.name + ",hash:" + t.hash, function (done) {
+            spacebox.upload(t.path, t.options, function (err, res) {
+                if (err) return done(err);
+                if (t.options.recursive) {
+                    assert.isArray(res);
+                    assert.isAbove(res.length, 1);
+                    for (var i = 0, len = res.length; i < len; ++i) {
+                        assert.property(res[i], "path");
+                        assert.property(res[i], "hash");
+                        assert.property(res[i], "directory");
+                        if (res[i].path === t.path) {
+                            assert.strictEqual(res[i].hash, t.hash);
+                        }
+                    }
+                } else {
+                    assert.strictEqual(res.hash, t.hash);
+                    assert.strictEqual(res.directory, t.options.recursive);
+                    if (res.name) {
+                        assert.strictEqual(res.name, t.name);
+                    }
+                }
+                done();
+            });
+        });
+    };
+    test({
+        path: "data/test.dat",
+        options: {
+            recursive: false,
+            publish: false
+        },
+        hash: "QmdChoeCkScfkGN1h5kp2FWyE1QJDLLFibBWh6u2TPXV43"
+    });
+    test({
+        path: "data/test.csv",
+        options: {
+            recursive: false,
+            publish: false
+        },
+        hash: "QmZhtKv8zwj6CbqeWzwQYw9cJFYfGfppb2qYS1xvKkm417"
+    });
+    test({
+        path: "data/test.txt",
+        options: {
+            recursive: false,
+            publish: false
+        },
+        hash: "QmUpbbXcmpcXvfnKGSLocCZGTh3Qr8vnHxW5o8heRG6wDC"
+    });
+    test({
+        path: "data",
+        options: {
+            recursive: true,
+            publish: false
+        },
+        hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f"
+    });
+    test({
+        path: "data/test.dat",
+        options: {
+            recursive: false,
+            publish: true
+        },
+        hash: "QmdChoeCkScfkGN1h5kp2FWyE1QJDLLFibBWh6u2TPXV43"
+    });
+    test({
+        path: "data/test.csv",
+        options: {
+            recursive: false,
+            publish: true
+        },
+        hash: "QmZhtKv8zwj6CbqeWzwQYw9cJFYfGfppb2qYS1xvKkm417"
+    });
+    test({
+        path: "data/test.txt",
+        options: {
+            recursive: false,
+            publish: true
+        },
+        hash: "QmUpbbXcmpcXvfnKGSLocCZGTh3Qr8vnHxW5o8heRG6wDC"
+    });
+    test({
+        path: "/home/jack/src/spacebox/data",
+        options: {
+            recursive: true,
+            publish: true
+        },
+        hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f"
+    });
 });
