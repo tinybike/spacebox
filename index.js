@@ -203,7 +203,7 @@ module.exports = {
                             } else {
                                 files.push({
                                     hash: thisFile.Hash,
-                                    path: p.join(path, thisFile.Name),
+                                    path: p.join(p.dirname(path), thisFile.Name),
                                     directory: directory
                                 });
                                 nextFile();
@@ -222,12 +222,14 @@ module.exports = {
                             callback(null, {hash: file.Hash, directory: directory});
                         });
                     }
+                    var basename = p.basename(path);
                     async.each(file, function (thisFile, nextFile) {
+                        if (thisFile.Name === '') return nextFile();
                         self.ipfs.is_directory(thisFile.Hash, function (err, directory) {
                             if (err) return nextFile(err);
                             files.push({
                                 hash: thisFile.Hash,
-                                path: thisFile.Name,
+                                path: (thisFile.Name === basename) ? path : p.join(path, thisFile.Name),
                                 directory: directory
                             });
                             nextFile();
@@ -258,9 +260,9 @@ module.exports = {
                     var path = hashpair[1];
                     var modified = hashpair[2];
 
-                    self.ipfs.add(path, {recursive: true}, function (err, newHash) {
+                    self.ipfs.add(path, {recursive: true}, function (err, file) {
                         if (err) return nextHashpair(err);
-                        if (hash === newHash) return nextHashpair();
+                        if (hash === file.Hash) return nextHashpair();
 
                         // if the file's hash has changed,
                         // keep the most recently modified copy
@@ -278,9 +280,9 @@ module.exports = {
                                 if (new Date(stat.mtime) > new Date(modified)) {
                                     self.upload(path, {recursive: true}, function (err, res) {
                                         if (err) return nextHashpair(err);
-                                        console.log("Uploaded file " + hashpair[1] + ": " + newHash);
+                                        console.log("Uploaded file " + hashpair[1] + ": " + file.Hash);
                                         updates[hashpair[1]] = {
-                                            hash: newHash,
+                                            hash: file.Hash,
                                             directory: false
                                         };
                                         nextHashpair();
@@ -290,9 +292,9 @@ module.exports = {
                                 } else {
                                     cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
                                         if (err) return nextHashpair(err);
-                                        console.log("Downloaded " + hashpair[1] + ": " + newHash);
+                                        console.log("Downloaded " + hashpair[1] + ": " + file.Hash);
                                         updates[hashpair[1]] = {
-                                            hash: newHash,
+                                            hash: file.Hash,
                                             directory: false
                                         };
                                         nextHashpair();
@@ -307,13 +309,15 @@ module.exports = {
                     async.each(dirlist, function (directory, nextDirectory) {
                         self.upload(directory, {recursive: true}, function (err, res) {
                             if (err) return nextDirectory(err);
-                            if (res && res.Hash) {
-                                console.log("Uploaded directory " + directory + ": " + res.Hash);
-                                updates[directory] = {
-                                    hash: res.Hash,
-                                    directory: true
-                                };
-                                return nextDirectory();
+                            for (var i = 0, len = res.length; i < len; ++i) {
+                                if (res[i].path === directory) {
+                                    console.log("Uploaded directory " + directory + ": " + res[i].hash);
+                                    updates[directory] = {
+                                        hash: res[i].hash,
+                                        directory: true
+                                    };
+                                    return nextDirectory();
+                                }
                             }
                             nextDirectory(res);
                         });
