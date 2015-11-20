@@ -9,7 +9,7 @@
 var fs = require("fs");
 var cp = require("child_process");
 var crypto = require("crypto");
-var join = require("path").join;
+var p = require("path");
 var async = require("async");
 var request = require("request");
 var multihash = require("multi-hash");
@@ -184,13 +184,12 @@ module.exports = {
                             });
                         });
                     }
-                    var shortpath = path.split('/');
-                    shortpath = shortpath[shortpath.length - 1];
+                    var basename = p.basename(path);
                     async.each(file, function (thisFile, nextFile) {
                         if (thisFile.Name === '') return nextFile();
                         self.ipfs.is_directory(thisFile.Hash, function (err, directory) {
                             if (err) return nextFile(err);
-                            if (directory && thisFile.Name === shortpath) {
+                            if (directory && thisFile.Name === basename) {
                                 self.eth.set_hash(path, thisFile.Hash, function (err, res) {
                                     if (err || !res) return nextFile(err);
                                     if (res !== true) return nextFile(res);
@@ -204,7 +203,7 @@ module.exports = {
                             } else {
                                 files.push({
                                     hash: thisFile.Hash,
-                                    path: join(path, thisFile.Name),
+                                    path: p.join(path, thisFile.Name),
                                     directory: directory
                                 });
                                 nextFile();
@@ -217,7 +216,7 @@ module.exports = {
 
                 // store the results privately
                 } else {
-                    if (!options.recursive && file.Hash) {
+                    if (!options.recursive || file.Hash) {
                         return self.ipfs.is_directory(file.Hash, function (err, directory) {
                             if (err) return callback(err);
                             callback(null, {hash: file.Hash, directory: directory});
