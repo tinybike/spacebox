@@ -242,54 +242,54 @@ module.exports = {
         });
     },
 
-    synchronize: function (hashlist, callback) {
+    synchronize: function (files, callback) {
         var self = this;
         var dirlist = [];
         var num_updates = 0;
         var updates = {};
-        async.each(hashlist, function (hashpair, nextHashpair) {
-            var hash = hashpair[0];
-            var path = hashpair[1];
-            var modified = hashpair[2];
+        async.each(files, function (file, nextFile) {
+            var hash = file.ipfshash;
+            var path = file.filepath;
+            var modified = file.modified;
 
             self.ipfs.add(path, {recursive: true}, function (err, file) {
-                if (err) return nextHashpair(err);
-                if (hash === file.Hash) return nextHashpair();
+                if (err) return nextFile(err);
+                if (hash === file.Hash) return nextFile();
 
                 // if the file's hash has changed,
                 // keep the most recently modified copy
                 self.ipfs.is_directory(hash, function (err, directory) {
-                    if (err) return nextHashpair(err);
+                    if (err) return nextFile(err);
                     if (directory) {
                         dirlist.push(path);
-                        return nextHashpair();
+                        return nextFile();
                     }
                     fs.stat(path, function (err, stat) {
-                        if (err) return nextHashpair(err);
+                        if (err) return nextFile(err);
                         num_updates++;
 
                         // if the local copy is more recent, then upload it
                         if (new Date(stat.mtime) > new Date(modified)) {
                             self.upload(path, {recursive: true}, function (err, res) {
-                                if (err) return nextHashpair(err);
+                                if (err) return nextFile(err);
                                 console.log("Uploaded file " + path + ": " + file.Hash);
                                 updates[path] = {
                                     hash: file.Hash,
                                     directory: false
                                 };
-                                nextHashpair();
+                                nextFile();
                             });
 
                         // otherwise, download the remote copy
                         } else {
                             cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
-                                if (err) return nextHashpair(err);
+                                if (err) return nextFile(err);
                                 console.log("Downloaded " + path + ": " + file.Hash);
                                 updates[path] = {
                                     hash: file.Hash,
                                     directory: false
                                 };
-                                nextHashpair();
+                                nextFile();
                             });
                         }
                     });
