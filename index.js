@@ -161,7 +161,9 @@ module.exports = {
             callback = options;
             options = {};
         }
+        console.log("upload(", path,options,")");
         fs.exists(path, function (exists) {
+            console.log("exists:", exists);
             if (!exists) return callback("path does not exist");
             self.ipfs.add(path, options.recursive, function (err, file) {
                 var files = [];
