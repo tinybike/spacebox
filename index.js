@@ -11,7 +11,6 @@ var cp = require("child_process");
 var crypto = require("crypto");
 var p = require("path");
 var async = require("async");
-var request = require("request");
 var multihash = require("multi-hash");
 var ipfs = require("ipfs-api")("localhost", "5001");
 var abi = require("augur-abi");
@@ -243,91 +242,81 @@ module.exports = {
         });
     },
 
-    synchronize: function (handle, callback) {
+    synchronize: function (hashlist, callback) {
         var self = this;
-        request({
-            url: "http://localhost:8765/sync/" + handle,
-            method: "GET"
-        }, function (err, response, body) {
-            if (err) return callback(err);
-            if (response.statusCode === 200) {
-                var hashlist = JSON.parse(body);
-                var dirlist = [];
-                var num_updates = 0;
-                var updates = {};
-                async.each(hashlist, function (hashpair, nextHashpair) {
-                    var hash = hashpair[0];
-                    var path = hashpair[1];
-                    var modified = hashpair[2];
+        var dirlist = [];
+        var num_updates = 0;
+        var updates = {};
+        async.each(hashlist, function (hashpair, nextHashpair) {
+            var hash = hashpair[0];
+            var path = hashpair[1];
+            var modified = hashpair[2];
 
-                    self.ipfs.add(path, {recursive: true}, function (err, file) {
+            self.ipfs.add(path, {recursive: true}, function (err, file) {
+                if (err) return nextHashpair(err);
+                if (hash === file.Hash) return nextHashpair();
+
+                // if the file's hash has changed,
+                // keep the most recently modified copy
+                self.ipfs.is_directory(hash, function (err, directory) {
+                    if (err) return nextHashpair(err);
+                    if (directory) {
+                        dirlist.push(path);
+                        return nextHashpair();
+                    }
+                    fs.stat(path, function (err, stat) {
                         if (err) return nextHashpair(err);
-                        if (hash === file.Hash) return nextHashpair();
+                        num_updates++;
 
-                        // if the file's hash has changed,
-                        // keep the most recently modified copy
-                        self.ipfs.is_directory(hash, function (err, directory) {
-                            if (err) return nextHashpair(err);
-                            if (directory) {
-                                dirlist.push(path);
-                                return nextHashpair();
-                            }
-                            fs.stat(path, function (err, stat) {
+                        // if the local copy is more recent, then upload it
+                        if (new Date(stat.mtime) > new Date(modified)) {
+                            self.upload(path, {recursive: true}, function (err, res) {
                                 if (err) return nextHashpair(err);
-                                num_updates++;
-
-                                // if the local copy is more recent, then upload it
-                                if (new Date(stat.mtime) > new Date(modified)) {
-                                    self.upload(path, {recursive: true}, function (err, res) {
-                                        if (err) return nextHashpair(err);
-                                        console.log("Uploaded file " + hashpair[1] + ": " + file.Hash);
-                                        updates[hashpair[1]] = {
-                                            hash: file.Hash,
-                                            directory: false
-                                        };
-                                        nextHashpair();
-                                    });
-
-                                // otherwise, download the remote copy
-                                } else {
-                                    cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
-                                        if (err) return nextHashpair(err);
-                                        console.log("Downloaded " + hashpair[1] + ": " + file.Hash);
-                                        updates[hashpair[1]] = {
-                                            hash: file.Hash,
-                                            directory: false
-                                        };
-                                        nextHashpair();
-                                    });
-                                }
+                                console.log("Uploaded file " + path + ": " + file.Hash);
+                                updates[path] = {
+                                    hash: file.Hash,
+                                    directory: false
+                                };
+                                nextHashpair();
                             });
-                        });
-                    });
-                    
-                }, function (err) {
-                    if (err) return callback(err);
-                    async.each(dirlist, function (directory, nextDirectory) {
-                        self.upload(directory, {recursive: true}, function (err, res) {
-                            if (err) return nextDirectory(err);
-                            for (var i = 0, len = res.length; i < len; ++i) {
-                                if (res[i].path === directory) {
-                                    console.log("Uploaded directory " + directory + ": " + res[i].hash);
-                                    updates[directory] = {
-                                        hash: res[i].hash,
-                                        directory: true
-                                    };
-                                    return nextDirectory();
-                                }
-                            }
-                            nextDirectory(res);
-                        });
-                    }, function (err) {
-                        if (err) return callback(err);
-                        callback(null, updates);
+
+                        // otherwise, download the remote copy
+                        } else {
+                            cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
+                                if (err) return nextHashpair(err);
+                                console.log("Downloaded " + path + ": " + file.Hash);
+                                updates[path] = {
+                                    hash: file.Hash,
+                                    directory: false
+                                };
+                                nextHashpair();
+                            });
+                        }
                     });
                 });
-            }
+            });
+            
+        }, function (err) {
+            if (err) return callback(err);
+            async.each(dirlist, function (directory, nextDirectory) {
+                self.upload(directory, {recursive: true}, function (err, res) {
+                    if (err) return nextDirectory(err);
+                    for (var i = 0, len = res.length; i < len; ++i) {
+                        if (res[i].path === directory) {
+                            console.log("Uploaded directory " + directory + ": " + res[i].hash);
+                            updates[directory] = {
+                                hash: res[i].hash,
+                                directory: true
+                            };
+                            return nextDirectory();
+                        }
+                    }
+                    nextDirectory(res);
+                });
+            }, function (err) {
+                if (err) return callback(err);
+                callback(null, updates);
+            });
         });
     }
-
 };
