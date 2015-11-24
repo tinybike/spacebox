@@ -136,10 +136,8 @@ module.exports = {
             ipfs.ls(hash, function (err, res) {
                 if (err || !res) return callback(err);
                 if (res.Objects && res.Objects.constructor === Array && res.Objects.length && res.Objects[0] && res.Objects[0].constructor === Object && res.Objects[0].Links && res.Objects[0].Links.constructor === Array) {
-                    ipfs.object.get(hash, function (err, obj) {
-                        if (obj && obj.Data === "\u0008\u0001") {
-                            return callback(null, true);
-                        }
+                    ipfs.cat(hash, function (err, data) {
+                        if (err) return callback(null, true);
                         callback(null, !!res.Objects[0].Links.length);
                     });
                 } else {
@@ -346,9 +344,14 @@ module.exports = {
 
                         // otherwise, download the remote copy
                         } else {
-                            // TODO ipfs.object.get
-                            // ipfs.object.get(hash, path, function (err, obj) {
-
+                            // ipfs.object.get(hash, function (err, obj) {
+                            //     if (err) return nextFile(err);
+                            //     console.log("Downloaded " + path + ": " + file.Hash);
+                            //     updates[path] = {
+                            //         hash: file.Hash,
+                            //         directory: false
+                            //     };
+                            //     nextFile();
                             // });
                             cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
                                 if (err) return nextFile(err);
