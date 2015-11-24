@@ -38,6 +38,9 @@ socket.on("data", function (data) {
                 if (err || !files) {
                     return console.error("upload failed:", err, files);
                 }
+                if (files && files.constructor === Object && !files.path) {
+                    files.path = data.path;
+                }
                 socket.write(JSON.stringify({
                     label: "uploaded",
                     handle: data.handle,

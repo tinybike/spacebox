@@ -136,9 +136,15 @@ module.exports = {
             ipfs.ls(hash, function (err, res) {
                 if (err || !res) return callback(err);
                 if (res.Objects && res.Objects.constructor === Array && res.Objects.length && res.Objects[0] && res.Objects[0].constructor === Object && res.Objects[0].Links && res.Objects[0].Links.constructor === Array) {
-                    return callback(null, !!res.Objects[0].Links.length);
+                    ipfs.object.get(hash, function (err, obj) {
+                        if (obj && obj.Data === "\u0008\u0001") {
+                            return callback(null, true);
+                        }
+                        callback(null, !!res.Objects[0].Links.length);
+                    });
+                } else {
+                    callback(res);
                 }
-                callback(res);
             });
         },
 
@@ -154,6 +160,64 @@ module.exports = {
 
     },
 
+    // remove local directory contents listed in ipfs
+    rmdir: function (path, hash, callback) {
+        var self = this;
+        ipfs.ls(hash, function (err, ls) {
+            if (err) return callback(err);
+            if (ls && ls.Objects && ls.Objects.length && ls.Objects[0] && ls.Objects[0].Links) {
+                async.each(ls.Objects[0].Links, function (file, nextFile) {
+                    self.ipfs.is_directory(file.Hash, function (err, directory) {
+                        if (directory) return self.rmdir(path, file.Hash, function (err) {
+                            if (err) return nextFile(err);
+                            nextFile();
+                        });
+                        fs.unlink(p.join(path, file.Name), function (err) {
+                            if (err) return nextFile(err);
+                            nextFile();
+                        });
+                    });
+                }, function (err) {
+                    if (err) return callback(err);
+                    callback(null, hash);
+                });
+            } else {
+                callback(ls);
+            }
+        });
+    },
+
+    // note: unpin is currently broken for folders!
+    remove: function (path, hash, options, callback) {
+        var self = this;
+        options = options || {};
+        if (!callback && options && options.constructor === Function) {
+            callback = options;
+            options = {};
+        }
+        this.ipfs.is_directory(hash, function (err, directory) {
+            if (directory) {
+                if (options.local) return self.rmdir(path, hash, callback);
+                return callback("remove (unpin) currently broken for folders");
+            }
+            ipfs.pin.remove(hash, function (err, res) {
+                if (err) return callback(err);
+                if (res && res.constructor === Object && res.Pinned &&
+                    res.Pinned.constructor === Array && res.Pinned.length) {
+                    if (!options.local) {
+                        return callback(null, res.Pinned[0]);
+                    }
+                    fs.unlink(path, function (err) {
+                        if (err) return callback(err);
+                        callback(null, res.Pinned[0]);
+                    });
+                } else {
+                    callback(res);
+                }
+            });
+        });
+    },
+
     upload: function (path, options, callback) {
         var self = this;
         options = options || {};
@@ -161,9 +225,7 @@ module.exports = {
             callback = options;
             options = {};
         }
-        console.log("upload(", path,options,")");
         fs.exists(path, function (exists) {
-            console.log("exists:", exists);
             if (!exists) return callback("path does not exist");
             self.ipfs.add(path, options.recursive, function (err, file) {
                 var files = [];
@@ -284,6 +346,10 @@ module.exports = {
 
                         // otherwise, download the remote copy
                         } else {
+                            // TODO ipfs.object.get
+                            // ipfs.object.get(hash, path, function (err, obj) {
+
+                            // });
                             cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
                                 if (err) return nextFile(err);
                                 console.log("Downloaded " + path + ": " + file.Hash);

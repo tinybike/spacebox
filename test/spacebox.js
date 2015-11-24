@@ -5,10 +5,29 @@
 
 "use strict";
 
+var fs = require("fs");
 var assert = require("chai").assert;
 var spacebox = require("../");
 
 describe("ipfs", function () {
+
+    before(function (done) {
+        fs.open("data/blank.txt", "w+", function (err, fd) {
+            fs.close(fd, function (err) {
+                if (err) return done(err);
+                fs.open("data/subdata/blank.txt", "w+", function (err, fd) {
+                    if (err) return done(err);
+                    fs.close(fd, function (err) {
+                        if (err) return done(err);
+                        fs.open("data/subdata/subsubdata/blank.txt", "w+", function (err, fd) {
+                            if (err) return done(err);
+                            fs.close(fd, done);
+                        });
+                    });
+                });
+            });
+        });
+    });
 
     describe("add", function () {
         var test = function (t) {
@@ -32,7 +51,7 @@ describe("ipfs", function () {
         test({
             path: "data",
             recursive: true,
-            hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f"
+            hash: "QmPuDEFbf4SMDwKxX6BnMAFzaYqgouE3HZgkjVgp6Wkxy9"
         });
         test({
             path: "data/test.csv",
@@ -49,6 +68,21 @@ describe("ipfs", function () {
             recursive: false,
             hash: "QmdChoeCkScfkGN1h5kp2FWyE1QJDLLFibBWh6u2TPXV43"
         });
+        test({
+            path: "data/blank.txt",
+            recursive: false,
+            hash: "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH"
+        });
+        test({
+            path: "data/subdata",
+            recursive: true,
+            hash: "QmZ2Y7UY6MdRwcKLBJyx18Jq1ygtEa9LQcmZLtM4R5bfLo"
+        });
+        test({
+            path: "data/subdata/subsubdata",
+            recursive: true,
+            hash: "QmdECRQDwYE8wkSNh2MA3kQ2hhjToVSTLYf29UtxjWQCvr"
+        });
     });
 
     describe("is_directory", function () {
@@ -62,7 +96,7 @@ describe("ipfs", function () {
             });
         };
         test({
-            hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f",
+            hash: "QmPuDEFbf4SMDwKxX6BnMAFzaYqgouE3HZgkjVgp6Wkxy9",
             directory: true
         });
         test({
@@ -80,7 +114,11 @@ describe("ipfs", function () {
         test({
             hash: "Qmd69BU8jcZfWHTDNLYewHBbHNYeKFGy1DF8hjJMMS6yWr",
             directory: true
-        }); 
+        });
+        test({
+            hash: "QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn",
+            directory: true
+        })
     });
 
     describe("publish/resolve", function () {
@@ -98,7 +136,7 @@ describe("ipfs", function () {
             });
         };
         test({
-            hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f",
+            hash: "QmeHk2XUgWE6hYwktRnVb72rsHY8La2rb4HQpuCKDP3mAQ",
             name: "QmXbf8FzHBSW1i7CQRn6LWGhrdxqcjWpFghvRS1g8T32DK"
         });
     });
@@ -156,9 +194,36 @@ describe("eth", function () {
 
 });
 
+describe("remove", function () {
+    var test = function (t) {
+        it(t.path + "," + t.hash, function (done) {
+            spacebox.remove(t.path, t.hash, t.options, function (err, hash) {
+                if (err) return done(err);
+                assert.strictEqual(hash, t.hash);
+                done();
+            });
+        });
+    };
+    test({
+        path: "data/blank.txt",
+        options: {local: true},
+        hash: "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH"
+    });
+    test({
+        path: "data/subdata",
+        options: {local: true},
+        hash: "QmZ2Y7UY6MdRwcKLBJyx18Jq1ygtEa9LQcmZLtM4R5bfLo"
+    });
+    test({
+        path: "data/subdata/subsubdata",
+        options: {local: true},
+        hash: "QmZ2Y7UY6MdRwcKLBJyx18Jq1ygtEa9LQcmZLtM4R5bfLo"
+    });
+});
+
 describe("upload", function () {
     var test = function (t) {
-        it(t.path + ",{recursive:" + t.options.recursive + ",publish:" + t.options.publish + "} -> name:" + t.name + ",hash:" + t.hash, function (done) {
+        it(t.path + ",{recursive:" + t.options.recursive + ",publish:" + t.options.publish + "} -> " + t.hash, function (done) {
             spacebox.upload(t.path, t.options, function (err, res) {
                 if (err) return done(err);
                 if (t.options.recursive) {
@@ -213,7 +278,7 @@ describe("upload", function () {
             recursive: true,
             publish: false
         },
-        hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f"
+        hash: "QmPuDEFbf4SMDwKxX6BnMAFzaYqgouE3HZgkjVgp6Wkxy9"
     });
     test({
         path: "data/test.dat",
@@ -245,6 +310,6 @@ describe("upload", function () {
             recursive: true,
             publish: true
         },
-        hash: "QmV9UzBH3u6zGgN4gNrbc8qqcShhAZ8v7pVxXG96wFW93f"
+        hash: "QmPuDEFbf4SMDwKxX6BnMAFzaYqgouE3HZgkjVgp6Wkxy9"
     });
 });

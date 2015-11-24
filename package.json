@@ -1,6 +1,6 @@
 {
   "name": "spacebox",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A box-shaped spaceship",
   "main": "index.js",
   "scripts": {
