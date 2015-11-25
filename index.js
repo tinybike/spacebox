@@ -314,8 +314,6 @@ module.exports = {
             var path = file.filepath;
             var modified = file.modified;
 
-            console.log("path:", path);
-
             self.ipfs.add(path, {recursive: true}, function (err, file) {
                 if (err) return nextFile(err);
                 if (hash === file.Hash) return nextFile();
@@ -355,6 +353,7 @@ module.exports = {
                             //     };
                             //     nextFile();
                             // });
+                            console.log("ipfs get " + hash + " -o " + path);
                             cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
                                 if (err) return nextFile(err);
                                 console.log("Downloaded " + path + ": " + file.Hash);
