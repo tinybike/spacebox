@@ -311,7 +311,8 @@ module.exports = {
         var dirlist = [];
         var num_updates = 0;
         var updates = {};
-        async.each(files, function (file, nextFile) {
+        var loop = (DEBUG) ? async.eachSeries : async.each;
+        loop(files, function (file, nextFile) {
             if (DEBUG) console.log("synchronize file:", file);
             var hash = file.ipfshash;
             var path = file.filepath;
@@ -376,7 +377,7 @@ module.exports = {
             
         }, function (err) {
             if (err) return callback(err);
-            async.each(dirlist, function (directory, nextDirectory) {
+            loop(dirlist, function (directory, nextDirectory) {
                 self.upload(directory, {recursive: true}, function (err, res) {
                     if (err) return nextDirectory(err);
                     for (var i = 0, len = res.length; i < len; ++i) {
