@@ -15,8 +15,10 @@ var multihash = require("multi-hash");
 var ipfs = require("ipfs-api")("localhost", "5001");
 var abi = require("augur-abi");
 var ethrpc = require("ethrpc");
+var mkdirp = require("mkdirp");
 
 var DEBUG = true;
+var loop = (DEBUG) ? async.eachSeries : async.each;
 
 function noop() { }
 
@@ -166,7 +168,7 @@ module.exports = {
         ipfs.ls(hash, function (err, ls) {
             if (err) return callback(err);
             if (ls && ls.Objects && ls.Objects.length && ls.Objects[0] && ls.Objects[0].Links) {
-                async.each(ls.Objects[0].Links, function (file, nextFile) {
+                loop(ls.Objects[0].Links, function (file, nextFile) {
                     self.ipfs.is_directory(file.Hash, function (err, directory) {
                         if (directory) return self.rmdir(path, file.Hash, function (err) {
                             if (err) return nextFile(err);
@@ -248,7 +250,7 @@ module.exports = {
                         });
                     }
                     var basename = p.basename(path);
-                    async.each(file, function (thisFile, nextFile) {
+                    loop(file, function (thisFile, nextFile) {
                         if (thisFile.Name === '') return nextFile();
                         self.ipfs.is_directory(thisFile.Hash, function (err, directory) {
                             if (err) return nextFile(err);
@@ -286,7 +288,7 @@ module.exports = {
                         });
                     }
                     var basename = p.basename(path);
-                    async.each(file, function (thisFile, nextFile) {
+                    loop(file, function (thisFile, nextFile) {
                         if (thisFile.Name === '') return nextFile();
                         self.ipfs.is_directory(thisFile.Hash, function (err, directory) {
                             if (err) return nextFile(err);
@@ -311,70 +313,71 @@ module.exports = {
         var dirlist = [];
         var num_updates = 0;
         var updates = {};
-        var loop = (DEBUG) ? async.eachSeries : async.each;
         loop(files, function (file, nextFile) {
             if (DEBUG) console.log("synchronize file:", file);
             var hash = file.ipfshash;
             var path = file.filepath;
             var modified = file.modified;
-
-            self.ipfs.add(path, {recursive: true}, function (err, file) {
-                if (DEBUG) console.log("synchronize ipfs.add:", file);
-                if (err) return nextFile(err);
-                if (hash === file.Hash) return nextFile();
-
-                // if the file's hash has changed,
-                // keep the most recently modified copy
-                self.ipfs.is_directory(hash, function (err, directory) {
-                    if (DEBUG) console.log("synchronize is_directory:", directory);
+            var dirname = (file.directory) ? path : p.dirname(path);
+            mkdirp(dirname, function (err) {
+                if (DEBUG) console.log("mkdirp err:", err);
+                self.ipfs.add(path, {recursive: true}, function (err, file) {
+                    if (DEBUG) console.log("synchronize ipfs.add:", file);
                     if (err) return nextFile(err);
-                    if (directory) {
-                        dirlist.push(path);
-                        return nextFile();
-                    }
-                    fs.stat(path, function (err, stat) {
-                        if (DEBUG) console.log("synchronize fs.stat:", stat);
+                    if (hash === file.Hash) return nextFile();
+
+                    // if the file's hash has changed,
+                    // keep the most recently modified copy
+                    self.ipfs.is_directory(hash, function (err, directory) {
+                        if (DEBUG) console.log("synchronize is_directory:", directory);
                         if (err) return nextFile(err);
-                        num_updates++;
-
-                        // if the local copy is more recent, then upload it
-                        if (new Date(stat.mtime) > new Date(modified)) {
-                            self.upload(path, {recursive: true}, function (err, res) {
-                                if (DEBUG) console.log("synchronize upload:", res);
-                                if (err) return nextFile(err);
-                                console.log("Uploaded file " + path + ": " + file.Hash);
-                                updates[path] = {
-                                    hash: file.Hash,
-                                    directory: false
-                                };
-                                nextFile();
-                            });
-
-                        // otherwise, download the remote copy
-                        } else {
-                            // ipfs.object.get(hash, function (err, obj) {
-                            //     if (err) return nextFile(err);
-                            //     console.log("Downloaded " + path + ": " + file.Hash);
-                            //     updates[path] = {
-                            //         hash: file.Hash,
-                            //         directory: false
-                            //     };
-                            //     nextFile();
-                            // });
-                            cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
-                                if (err) return nextFile(err);
-                                console.log("Downloaded " + path + ": " + file.Hash);
-                                updates[path] = {
-                                    hash: file.Hash,
-                                    directory: false
-                                };
-                                nextFile();
-                            });
+                        if (directory) {
+                            dirlist.push(path);
+                            return nextFile();
                         }
+                        fs.stat(path, function (err, stat) {
+                            if (DEBUG) console.log("synchronize fs.stat:", stat);
+                            if (err) return nextFile(err);
+                            num_updates++;
+
+                            // if the local copy is more recent, then upload it
+                            if (new Date(stat.mtime) > new Date(modified)) {
+                                self.upload(path, {recursive: true}, function (err, res) {
+                                    if (DEBUG) console.log("synchronize upload:", res);
+                                    if (err) return nextFile(err);
+                                    console.log("Uploaded file " + path + ": " + file.Hash);
+                                    updates[path] = {
+                                        hash: file.Hash,
+                                        directory: false
+                                    };
+                                    nextFile();
+                                });
+
+                            // otherwise, download the remote copy
+                            } else {
+                                // ipfs.object.get(hash, function (err, obj) {
+                                //     if (err) return nextFile(err);
+                                //     console.log("Downloaded " + path + ": " + file.Hash);
+                                //     updates[path] = {
+                                //         hash: file.Hash,
+                                //         directory: false
+                                //     };
+                                //     nextFile();
+                                // });
+                                cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
+                                    if (err) return nextFile(err);
+                                    console.log("Downloaded " + path + ": " + file.Hash);
+                                    updates[path] = {
+                                        hash: file.Hash,
+                                        directory: false
+                                    };
+                                    nextFile();
+                                });
+                            }
+                        });
                     });
                 });
-            });
-            
+            });            
         }, function (err) {
             if (err) return callback(err);
             loop(dirlist, function (directory, nextDirectory) {
