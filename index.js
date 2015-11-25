@@ -16,6 +16,8 @@ var ipfs = require("ipfs-api")("localhost", "5001");
 var abi = require("augur-abi");
 var ethrpc = require("ethrpc");
 
+var DEBUG = true;
+
 function noop() { }
 
 function sha256(str) {
@@ -310,29 +312,34 @@ module.exports = {
         var num_updates = 0;
         var updates = {};
         async.each(files, function (file, nextFile) {
+            if (DEBUG) console.log("synchronize file:", file);
             var hash = file.ipfshash;
             var path = file.filepath;
             var modified = file.modified;
 
             self.ipfs.add(path, {recursive: true}, function (err, file) {
+                if (DEBUG) console.log("synchronize ipfs.add:", file);
                 if (err) return nextFile(err);
                 if (hash === file.Hash) return nextFile();
 
                 // if the file's hash has changed,
                 // keep the most recently modified copy
                 self.ipfs.is_directory(hash, function (err, directory) {
+                    if (DEBUG) console.log("synchronize is_directory:", directory);
                     if (err) return nextFile(err);
                     if (directory) {
                         dirlist.push(path);
                         return nextFile();
                     }
                     fs.stat(path, function (err, stat) {
+                        if (DEBUG) console.log("synchronize fs.stat:", stat);
                         if (err) return nextFile(err);
                         num_updates++;
 
                         // if the local copy is more recent, then upload it
                         if (new Date(stat.mtime) > new Date(modified)) {
                             self.upload(path, {recursive: true}, function (err, res) {
+                                if (DEBUG) console.log("synchronize upload:", res);
                                 if (err) return nextFile(err);
                                 console.log("Uploaded file " + path + ": " + file.Hash);
                                 updates[path] = {
@@ -353,7 +360,6 @@ module.exports = {
                             //     };
                             //     nextFile();
                             // });
-                            console.log("ipfs get " + hash + " -o " + path);
                             cp.exec("ipfs get " + hash + " -o " + path, function (err, stdout) {
                                 if (err) return nextFile(err);
                                 console.log("Downloaded " + path + ": " + file.Hash);
