@@ -17,7 +17,7 @@ var abi = require("augur-abi");
 var ethrpc = require("ethrpc");
 var mkdirp = require("mkdirp");
 
-var DEBUG = true;
+var DEBUG = false;
 var loop = (DEBUG) ? async.eachSeries : async.each;
 
 function noop() { }
